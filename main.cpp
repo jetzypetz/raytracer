@@ -83,7 +83,7 @@ public:
 
 class Sphere : public Object {
 public:
-	Sphere(const Vector& center, double radius, const Vector& albedo, bool mirror = false, bool transparent = false) : ::Object(albedo, mirror, transparent), C(center), R(radius) {};
+	Sphere(const Vector& center, double radius, const Vector& albedo, bool mirror = false, bool transparent = false) : ::Object(albedo, mirror, transparent), R(radius), C(center) {};
 
 	// returns true iif there is an intersection between the ray and the sphere
 	// if there is an intersection, also computes the point of intersection P, 
@@ -145,7 +145,9 @@ public:
 		double Cand_t;
 		bool found;
 
-		for (object_id = 0; object_id < objects.size(); object_id++) {
+		int nb_objects = (int) objects.size();
+
+		for (object_id = 0; object_id < nb_objects; object_id++) {
 			if ((found = objects[object_id]->intersect(ray, Cand_P, Cand_t, Cand_N)) && Cand_t < t) {
 				t = Cand_t;
 			}
@@ -177,10 +179,10 @@ public:
 		// TODO (lab 1) : if intersect with ray, use the returned information to compute the color ; otherwise black 
 		// in lab 1, the color only includes direct lighting with shadows
 
-
 		Vector P, N;
 		double t;
 		int object_id;
+
 		if (intersect(ray, P, t, N, object_id)) {
 
 			if (objects[object_id]->mirror) {
