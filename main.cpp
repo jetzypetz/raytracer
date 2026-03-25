@@ -10,6 +10,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#ifndef EPS
+#define EPS 0.00000000000001
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323856
 #endif
@@ -180,7 +184,7 @@ public:
 
 				// return getColor in the reflected direction, with recursion_depth+1 (recursively)
 
-				return getColor(Ray(P, ray.u - (2 * dot(ray.u, N) * N)), recursion_depth+1);
+				return getColor(Ray(P + EPS * P, ray.u - (2 * dot(ray.u, N) * N)), recursion_depth+1);
 			} // else
 
 			if (objects[object_id]->transparent) { // optional
@@ -198,7 +202,7 @@ public:
 			Vector light_direction = light_position - P;
 			light_direction.normalize();
 
-			if (intersect(Ray(P, light_direction), P_prime, t_prime, N_prime, oid_prime)
+			if (intersect(Ray(P + EPS * P, light_direction), P_prime, t_prime, N_prime, oid_prime)
 					&& t < sqrt(dot(light_position - P_prime, light_position - P_prime))) {
 				return Vector(150, 150, 150);
 			} else {
@@ -245,14 +249,12 @@ int main() {
 
 	scene.addObject(&center_sphere);
 
-	/*
-	scene.addObject(&wall_left);
-	scene.addObject(&wall_right);
-	scene.addObject(&wall_front);
-	scene.addObject(&wall_behind);
-	scene.addObject(&ceiling);
-	scene.addObject(&floor);
-	*/
+	// scene.addObject(&wall_left);
+	// scene.addObject(&wall_right);
+	// scene.addObject(&wall_front);
+	// scene.addObject(&wall_behind);
+	// scene.addObject(&ceiling);
+	// scene.addObject(&floor);
 
 	std::vector<unsigned char> image(W * H * 3, 0);
 
@@ -279,7 +281,7 @@ int main() {
 			image[(i * W + j) * 3 + 2] = std::min(255., std::max(0., 255. * std::pow(color[2] / 255., 1. / scene.gamma)));
 		}
 	}
-	stbi_write_png("image.png", W, H, 3, &image[0], 0);
+	stbi_write_png("first_working.png", W, H, 3, &image[0], 0);
 
 	return 0;
 }
