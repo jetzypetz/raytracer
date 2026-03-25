@@ -145,22 +145,13 @@ public:
 		double Cand_t;
 		bool found;
 
-		int nb_objects = (int) objects.size();
-
-		for (object_id = 0; object_id < nb_objects; object_id++) {
-			if ((found = objects[object_id]->intersect(ray, Cand_P, Cand_t, Cand_N)) && Cand_t < t) {
+		for (unsigned long int i = 0; i < objects.size(); i++) {
+			if ((found = objects[i]->intersect(ray, Cand_P, Cand_t, Cand_N)) && Cand_t < t) {
 				t = Cand_t;
+				object_id = i;
 			}
 
 		}
-
-		// I dont know which is cleaner/more efficient
-		// if (found) {
-		// 	N, P = Cand_N, Cand_P;
-		// 	return true;
-		// } else {
-		// 	return false;
-		// }
 
 		if (found) {
 			N = Cand_N;
@@ -209,7 +200,7 @@ public:
 
 			if (intersect(Ray(P, light_direction), P_prime, t_prime, N_prime, oid_prime)
 					&& t < sqrt(dot(light_position - P_prime, light_position - P_prime))) {
-				return Vector(0, 0, 0);
+				return Vector(150, 150, 150);
 			} else {
 				return Vector(255, 255, 255);
 			}
@@ -217,7 +208,7 @@ public:
 			// TODO (lab 2) : add indirect lighting component with a recursive call
 		}
 
-		return Vector(0, 0, 0);
+		return Vector(50, 50, 50);
 	}
 
 	std::vector<const Object*> objects;
@@ -236,7 +227,7 @@ int main() {
 		engine[i].seed(i);
 	}
 
-	Sphere center_sphere(Vector(0, 0, 0), 10., Vector(0.8, 0.8, 0.8));
+	Sphere center_sphere(Vector(0, 0, 0), 50., Vector(0.8, 0.8, 0.8));
 	Sphere wall_left(Vector(-1000, 0, 0), 940, Vector(0.5, 0.8, 0.1));
 	Sphere wall_right(Vector(1000, 0, 0), 940, Vector(0.9, 0.2, 0.3));
 	Sphere wall_front(Vector(0, 0, -1000), 940, Vector(0.1, 0.6, 0.7));
