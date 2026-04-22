@@ -1,8 +1,11 @@
+// g++ -Wall -Werror -fopenmp main.cpp
+
 #define _CRT_SECURE_NO_WARNINGS 1
-#include <vector>
 #include <cmath>
+#include <vector>
 #include <random>
 #include <limits>
+#include <iostream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -11,7 +14,7 @@
 #include "stb_image.h"
 
 #ifndef EPS
-#define EPS 0.00000000000001
+#define EPS 0.0000000001
 #endif
 
 #ifndef M_PI
@@ -106,6 +109,8 @@ public:
 			if (t < 0) { return false; }
 		}
 		P = ray.O + t * ray.u;
+		N = P - C;
+		N.normalize();
 		return true;
 	}
 
@@ -147,19 +152,17 @@ public:
 
 		Vector Cand_P, Cand_N; // Candidate values
 		double Cand_t;
-		bool found;
+		bool found = false;
 
 		for (unsigned long int i = 0; i < objects.size(); i++) {
-			if ((found = objects[i]->intersect(ray, Cand_P, Cand_t, Cand_N)) && Cand_t < t) {
+			if ((objects[i]->intersect(ray, Cand_P, Cand_t, Cand_N)) && Cand_t < t) {
+				found = true;
 				t = Cand_t;
+				N = Cand_N;
+				P = Cand_P;
 				object_id = i;
 			}
 
-		}
-
-		if (found) {
-			N = Cand_N;
-			P = Cand_P;
 		}
 
 		return found;
@@ -178,35 +181,39 @@ public:
 		double t;
 		int object_id;
 
+		Vector return_color(0, 0, 0);
+
 		if (intersect(ray, P, t, N, object_id)) {
 
 			if (objects[object_id]->mirror) {
 
 				// return getColor in the reflected direction, with recursion_depth+1 (recursively)
 
-				return getColor(Ray(P + EPS * P, ray.u - (2 * dot(ray.u, N) * N)), recursion_depth+1);
+				return getColor(Ray(P + EPS * N, ray.u - (2 * dot(ray.u, N) * N)), recursion_depth+1);
 			} // else
 
 			if (objects[object_id]->transparent) { // optional
 
 				// return getColor in the refraction direction, with recursion_depth+1 (recursively)
+				// return getColor(Ray(P - EPS * N, refraction direction ), recursion_depth+1);
+
 			} // else
 
 			// test if there is a shadow by sending a new ray
-			// if there is no shadow, compute the formula with dot products etc.
+			// if shadow, do nothing
+			// if no shadow, return colour set to albedo
 
 			Vector P_prime, N_prime;
 			double t_prime;
-			int oid_prime;
+			int oid_prime; // unused, just needed for intersect
 
 			Vector light_direction = light_position - P;
 			light_direction.normalize();
 
-			if (intersect(Ray(P + EPS * P, light_direction), P_prime, t_prime, N_prime, oid_prime)
-					&& t < sqrt(dot(light_position - P_prime, light_position - P_prime))) {
-				return Vector(150, 150, 150);
-			} else {
-				return Vector(255, 255, 255);
+			if (!intersect(Ray(P + EPS * N, light_direction), P_prime, t_prime, N_prime, oid_prime) // no obstruction with light
+					|| t_prime > sqrt(dot(light_position - P_prime, light_position - P_prime))) { // or obstuctor dist is further than light pos
+				return_color = objects[object_id]->albedo * 255.;
+				return return_color;
 			}
 
 			// TODO (lab 2) : add indirect lighting component with a recursive call
@@ -231,30 +238,35 @@ int main() {
 		engine[i].seed(i);
 	}
 
-	Sphere center_sphere(Vector(0, 0, 0), 50., Vector(0.8, 0.8, 0.8));
-	Sphere wall_left(Vector(-1000, 0, 0), 940, Vector(0.5, 0.8, 0.1));
-	Sphere wall_right(Vector(1000, 0, 0), 940, Vector(0.9, 0.2, 0.3));
-	Sphere wall_front(Vector(0, 0, -1000), 940, Vector(0.1, 0.6, 0.7));
-	Sphere wall_behind(Vector(0, 0, 1000), 940, Vector(0.8, 0.2, 0.9));
-	Sphere ceiling(Vector(0, 1000, 0), 940, Vector(0.3, 0.5, 0.3));
-	Sphere floor(Vector(0, -1000, 0), 990, Vector(0.6, 0.5, 0.7));
+	Sphere center_sphere(Vector(0, 0, -400), 50., Vector(0.8, 0.8, 0.8));
+	Sphere off_center_sphere(Vector(100, 0, -420), 40., Vector(0.8, 0.8, 0.8), true);
+	Sphere off_center_sphere2(Vector(-200, 100, -500), 50., Vector(1, 0.8, 0.8));
+	Sphere off_center_sphere3(Vector(0, 100, -500), 50., Vector(1, 0.8, 0.8));
+	Sphere far_sphere(Vector(200, -200, -5000), 3000, Vector(1, 0.5, 0.7));
+	Sphere wall_left(Vector(-10000, 0, -500), 9500, Vector(0.5, 0.8, 0.1));
+	Sphere wall_right(Vector(10000, 0, -500), 9500, Vector(0.9, 0.2, 0.3));
+	Sphere wall_front(Vector(0, 0, -10500), 9500, Vector(0.1, 0.6, 0.7));
+	Sphere wall_behind(Vector(0, 0, 9500), 9000, Vector(0.8, 0.2, 0.9));
+	Sphere ceiling(Vector(0, 10000, -500), 9500, Vector(0.3, 0.5, 0.3));
+	Sphere floor(Vector(0, -10000, -500), 9500, Vector(0.6, 0.5, 0.7));
 
 	Scene scene;
 	scene.camera_center = Vector(0, 0, 55);
-	scene.light_position = Vector(-10,20,40);
+	scene.light_position = Vector(-100, 400, -250);
 	scene.light_intensity = 3E7;
 	scene.fov = 60 * M_PI / 180.;
-	scene.gamma = 1.0;    // TODO (lab 1) : play with gamma ; typically, gamma = 2.2
+	scene.gamma = 0.9;    // TODO (lab 1) : play with gamma ; typically, gamma = 2.2
 	scene.max_light_bounce = 5;
 
 	scene.addObject(&center_sphere);
+	scene.addObject(&off_center_sphere);
 
-	// scene.addObject(&wall_left);
-	// scene.addObject(&wall_right);
-	// scene.addObject(&wall_front);
-	// scene.addObject(&wall_behind);
-	// scene.addObject(&ceiling);
-	// scene.addObject(&floor);
+	scene.addObject(&wall_left);
+	scene.addObject(&wall_right);
+	scene.addObject(&wall_front);
+	scene.addObject(&wall_behind);
+	scene.addObject(&ceiling);
+	scene.addObject(&floor);
 
 	std::vector<unsigned char> image(W * H * 3, 0);
 
@@ -264,8 +276,7 @@ int main() {
 			Vector color;
 
 			// TODO (lab 1) : correct ray_direction so that it goes through each pixel (j, i)			
-			Vector ray_direction(j - W/2 + 0.5, H/2 - i - 0.5, -55);
-
+			Vector ray_direction(j - W/2 + 0.5, H/2 - i - 0.5, -W / (2 * tan(scene.fov / 2)));
 			ray_direction.normalize();
 
 			Ray ray(scene.camera_center, ray_direction);
@@ -273,15 +284,15 @@ int main() {
 			// TODO (lab 2) : add Monte Carlo / averaging of random ray contributions here
 			// TODO (lab 2) : add antialiasing by altering the ray_direction here
 			// TODO (lab 2) : add depth of field effect by altering the ray origin (and direction) here
-
-			color  = scene.getColor(ray, 0);
+			
+			color = scene.getColor(ray, 0);
 
 			image[(i * W + j) * 3 + 0] = std::min(255., std::max(0., 255. * std::pow(color[0] / 255., 1. / scene.gamma)));
 			image[(i * W + j) * 3 + 1] = std::min(255., std::max(0., 255. * std::pow(color[1] / 255., 1. / scene.gamma)));
 			image[(i * W + j) * 3 + 2] = std::min(255., std::max(0., 255. * std::pow(color[2] / 255., 1. / scene.gamma)));
-		}
+			}
 	}
-	stbi_write_png("first_working.png", W, H, 3, &image[0], 0);
+	stbi_write_png("image.png", W, H, 3, &image[0], 0);
 
 	return 0;
 }
