@@ -1,6 +1,7 @@
-// g++ -Wall -Werror -fopenmp main.cpp
+// g++ -Wall -Werror -fopenmp -std=c++11 main.cpp
 
 #define _CRT_SECURE_NO_WARNINGS 1
+#include <omp.h>
 #include <cmath>
 #include <vector>
 #include <random>
@@ -17,12 +18,18 @@
 #define EPS 0.0000000001
 #endif
 
+#ifndef ANTIALIASING
+#define ANTIALIASING 50
+#endif
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323856
 #endif
 
 static std::default_random_engine engine[32];
 static std::uniform_real_distribution<double> uniform(0, 1);
+
+int counter = 0;
 
 double sqr(double x) { return x * x; };
 
@@ -45,6 +52,35 @@ public:
 		data[1] /= n;
 		data[2] /= n;
 	}
+
+	Vector& operator+=(const Vector& other) {
+        data[0] += other[0];
+        data[1] += other[1];
+        data[2] += other[2];
+        return *this;  // Return reference to allow chaining
+    }
+    
+    Vector& operator-=(const Vector& other) {
+        data[0] -= other[0];
+        data[1] -= other[1];
+        data[2] -= other[2];
+        return *this;
+    }
+    
+    Vector& operator*=(double scalar) {
+        data[0] *= scalar;
+        data[1] *= scalar;
+        data[2] *= scalar;
+        return *this;
+    }
+    
+    Vector& operator/=(double scalar) {
+        data[0] /= scalar;
+        data[1] /= scalar;
+        data[2] /= scalar;
+        return *this;
+    }
+
 	double operator[](int i) const { return data[i]; };
 	double& operator[](int i) { return data[i]; };
 	double data[3];
@@ -70,6 +106,55 @@ double dot(const Vector& a, const Vector& b) {
 }
 Vector cross(const Vector& a, const Vector& b) {
 	return Vector(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]);
+}
+Vector mult(const Vector& a, const Vector& b) {
+	return Vector(a[0] * b[0], a[1] * b[1], a[2] * b[2]);
+}
+int offset(const Vector& a, const Vector& b) {
+	return (dot(a, b) < 0) ? 1 : -1;
+}
+
+Vector random_cos(const Vector &N) {
+
+	double r1 = uniform(engine[omp_get_thread_num()]);
+	double r2 = uniform(engine[omp_get_thread_num()]);
+
+	double x = cos(2 * M_PI * r1) * sqrt(1 - r2);
+	double y = sin(2 * M_PI * r1) * sqrt(1 - r2);
+	double z = sqrt(r2);
+	
+	Vector T1;
+	Vector T2;
+
+	int smallest = 0;
+	if (N[1] * N[1] < N[smallest] * N[smallest]) {smallest = 1;}
+	if (N[2] * N[2] < N[smallest] * N[smallest]) {smallest = 2;}
+	
+	switch (smallest) {
+		case 0:
+			T1 = Vector(0, -N[2], N[1]);
+			break;
+		case 1:
+			T1 = Vector(N[2], 0, -N[0]);
+			break;
+		case 2:
+			T1 = Vector(-N[1], N[0], 0);
+			break;
+	}
+
+	T1.normalize();
+
+	T2 = cross(N, T1);
+
+	return (x * T1 + y * T2 + z * N);
+}
+
+void boxMuller(double &stdev, double& x, double& y) {
+	double r1 = uniform(engine[omp_get_thread_num()]);
+	double r2 = uniform(engine[omp_get_thread_num()]);
+
+	x = sqrt(-2 * log (r1)) * cos(-2 * M_PI * r2) * stdev;
+	y = sqrt(-2 * log (r1)) * sin(-2 * M_PI * r2) * stdev;
 }
 
 class Ray {
@@ -162,9 +247,7 @@ public:
 				P = Cand_P;
 				object_id = i;
 			}
-
 		}
-
 		return found;
 	}
 
@@ -189,38 +272,89 @@ public:
 
 				// return getColor in the reflected direction, with recursion_depth+1 (recursively)
 
-				return getColor(Ray(P + EPS * N, ray.u - (2 * dot(ray.u, N) * N)), recursion_depth+1);
-			} // else
+				return getColor(Ray(P + EPS * N * offset(ray.u, N), ray.u - (2 * dot(ray.u, N) * N)), recursion_depth+1);
+			} else {
 
-			if (objects[object_id]->transparent) { // optional
+				// test if there is a shadow by sending a new ray
+				// if shadow, do nothing
+				// if no shadow, return colour set to albedo
 
-				// return getColor in the refraction direction, with recursion_depth+1 (recursively)
-				// return getColor(Ray(P - EPS * N, refraction direction ), recursion_depth+1);
+				Vector P_prime, N_prime;
+				double t_prime;
+				int oid_prime; // unused, just needed for intersect
 
-			} // else
+				Vector light_direction = light_position - P;
+				light_direction.normalize();
 
-			// test if there is a shadow by sending a new ray
-			// if shadow, do nothing
-			// if no shadow, return colour set to albedo
+				if (!intersect(Ray(P + EPS * N * offset(ray.u, N), light_direction), P_prime, t_prime, N_prime, oid_prime) // no obstruction with light
+				|| t_prime > sqrt(dot(light_position - P, light_position - P))) { // or obstuctor dist is further than light pos
+					
+					Vector S_P = light_position - P;
+					double d = sqrt(dot(S_P, S_P));
+					
+					S_P.normalize();
+					
+					return_color = (objects[object_id]->albedo * light_intensity * dot(N, S_P)) / (4 * M_PI * M_PI * d * d);
+				}
 
-			Vector P_prime, N_prime;
-			double t_prime;
-			int oid_prime; // unused, just needed for intersect
+				Ray random_ray(P + EPS * N * offset(ray.u, N), random_cos(N));
 
-			Vector light_direction = light_position - P;
-			light_direction.normalize();
+				Vector indirect_light = mult(getColor(random_ray, recursion_depth + 1), objects[object_id]->albedo);
 
-			if (!intersect(Ray(P + EPS * N, light_direction), P_prime, t_prime, N_prime, oid_prime) // no obstruction with light
-					|| t_prime > sqrt(dot(light_position - P_prime, light_position - P_prime))) { // or obstuctor dist is further than light pos
-				return_color = objects[object_id]->albedo * 255.;
+				return_color = return_color + indirect_light; // why is this not adding colour to shadows
+
 				return return_color;
 			}
 
-			// TODO (lab 2) : add indirect lighting component with a recursive call
+		} else {
+			return Vector(0, 0, 0);
+		}
+	}
+
+	std::vector<unsigned char> render(const int W = 512, const int H = 512) {
+
+		std::vector<unsigned char> image(W * H * 3, 0);
+		
+		#pragma omp parallel for schedule(dynamic, 1)
+
+		for (int i = 0; i < H; i++) {
+			for (int j = 0; j < W; j++) {
+
+				// TODO (lab 1) : correct ray_direction so that it goes through each pixel (j, i)			
+				
+				// TODO (lab 2) : add Monte Carlo / averaging of random ray contributions here
+				// TODO (lab 2) : add antialiasing by altering the ray_direction here
+				// TODO (lab 2) : add depth of field effect by altering the ray origin (and direction) here
+
+				Vector color(0., 0., 0.);
+				
+				for (int k=0; k<ANTIALIASING; k++) {
+					double random_x, random_y;
+					double stdev = 0.5;
+				
+					boxMuller(stdev, random_x, random_y);
+
+					if ((random_x * random_x < 0.25) && (random_y * random_y < 0.25)) {
+						Vector ray_direction = Vector(j - W/2 + 0.5 + random_x, H/2 - i - 0.5 + random_y, -W / (2 * tan(fov / 2)));
+						ray_direction.normalize();
+		
+						Ray ray = Ray(camera_center, ray_direction);
+	
+						color += getColor(ray, 0);
+					}
+
+				}
+
+				color *= 255. / ANTIALIASING;
+
+				image[(i * W + j) * 3 + 0] = std::min(255., std::max(0., 255. * std::pow(color[0] / 255., 1. / gamma)));
+				image[(i * W + j) * 3 + 1] = std::min(255., std::max(0., 255. * std::pow(color[1] / 255., 1. / gamma)));
+				image[(i * W + j) * 3 + 2] = std::min(255., std::max(0., 255. * std::pow(color[2] / 255., 1. / gamma)));
+			}
 		}
 
-		return Vector(50, 50, 50);
-	}
+		return image;
+	}	
 
 	std::vector<const Object*> objects;
 
@@ -229,38 +363,32 @@ public:
 	int max_light_bounce;
 };
 
-
 int main() {
-	int W = 512;
-	int H = 512;
-
+	Sphere center_sphere(Vector(-100, -100, -400), 50., Vector(0.8, 0.8, 0.8));
+	Sphere off_center_sphere(Vector(100, -100, -420), 40., Vector(0.8, 0.8, 0.8), true);
+	Sphere far_sphere(Vector(200, 100, -4800), 3000, Vector(1, 0.5, 0.7));
+	Sphere wall_left(Vector(-9800, 300, -300), 9500, Vector(0.5, 0.8, 0.1));
+	Sphere wall_right(Vector(9800, 300, -300), 9500, Vector(0.9, 0.2, 0.3));
+	Sphere wall_front(Vector(0, 300, -10100), 9500, Vector(0.1, 0.6, 0.7));
+	Sphere wall_behind(Vector(0, 300, 9500), 9000, Vector(0.8, 0.2, 0.9));
+	Sphere ceiling(Vector(0, 9900, -300), 9500, Vector(0.3, 0.5, 0.3));
+	Sphere floor(Vector(0, -9700, -300), 9500, Vector(0.6, 0.5, 0.7));
+		
 	for (int i = 0; i<32; i++) {
 		engine[i].seed(i);
 	}
 
-	Sphere center_sphere(Vector(0, 0, -400), 50., Vector(0.8, 0.8, 0.8));
-	Sphere off_center_sphere(Vector(100, 0, -420), 40., Vector(0.8, 0.8, 0.8), true);
-	Sphere off_center_sphere2(Vector(-200, 100, -500), 50., Vector(1, 0.8, 0.8));
-	Sphere off_center_sphere3(Vector(0, 100, -500), 50., Vector(1, 0.8, 0.8));
-	Sphere far_sphere(Vector(200, -200, -5000), 3000, Vector(1, 0.5, 0.7));
-	Sphere wall_left(Vector(-10000, 0, -500), 9500, Vector(0.5, 0.8, 0.1));
-	Sphere wall_right(Vector(10000, 0, -500), 9500, Vector(0.9, 0.2, 0.3));
-	Sphere wall_front(Vector(0, 0, -10500), 9500, Vector(0.1, 0.6, 0.7));
-	Sphere wall_behind(Vector(0, 0, 9500), 9000, Vector(0.8, 0.2, 0.9));
-	Sphere ceiling(Vector(0, 10000, -500), 9500, Vector(0.3, 0.5, 0.3));
-	Sphere floor(Vector(0, -10000, -500), 9500, Vector(0.6, 0.5, 0.7));
-
 	Scene scene;
 	scene.camera_center = Vector(0, 0, 55);
-	scene.light_position = Vector(-100, 400, -250);
-	scene.light_intensity = 3E7;
+	scene.light_position = Vector(-100, 200, -200);
+	scene.light_intensity = 1E7;
 	scene.fov = 60 * M_PI / 180.;
-	scene.gamma = 0.9;    // TODO (lab 1) : play with gamma ; typically, gamma = 2.2
+	scene.gamma = 2.2;
 	scene.max_light_bounce = 5;
 
 	scene.addObject(&center_sphere);
+	// scene.addObject(&big_room);
 	scene.addObject(&off_center_sphere);
-
 	scene.addObject(&wall_left);
 	scene.addObject(&wall_right);
 	scene.addObject(&wall_front);
@@ -268,30 +396,11 @@ int main() {
 	scene.addObject(&ceiling);
 	scene.addObject(&floor);
 
-	std::vector<unsigned char> image(W * H * 3, 0);
+	int W = 512;
+	int H = 512;
+	
+	std::vector<unsigned char> image = scene.render(W, H);
 
-#pragma omp parallel for schedule(dynamic, 1)
-	for (int i = 0; i < H; i++) {
-		for (int j = 0; j < W; j++) {
-			Vector color;
-
-			// TODO (lab 1) : correct ray_direction so that it goes through each pixel (j, i)			
-			Vector ray_direction(j - W/2 + 0.5, H/2 - i - 0.5, -W / (2 * tan(scene.fov / 2)));
-			ray_direction.normalize();
-
-			Ray ray(scene.camera_center, ray_direction);
-
-			// TODO (lab 2) : add Monte Carlo / averaging of random ray contributions here
-			// TODO (lab 2) : add antialiasing by altering the ray_direction here
-			// TODO (lab 2) : add depth of field effect by altering the ray origin (and direction) here
-			
-			color = scene.getColor(ray, 0);
-
-			image[(i * W + j) * 3 + 0] = std::min(255., std::max(0., 255. * std::pow(color[0] / 255., 1. / scene.gamma)));
-			image[(i * W + j) * 3 + 1] = std::min(255., std::max(0., 255. * std::pow(color[1] / 255., 1. / scene.gamma)));
-			image[(i * W + j) * 3 + 2] = std::min(255., std::max(0., 255. * std::pow(color[2] / 255., 1. / scene.gamma)));
-			}
-	}
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
 
 	return 0;
