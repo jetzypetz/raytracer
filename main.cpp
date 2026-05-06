@@ -19,7 +19,7 @@
 #endif
 
 #ifndef ANTIALIASING
-#define ANTIALIASING 50
+#define ANTIALIASING 1000
 #endif
 
 #ifndef M_PI
@@ -46,18 +46,20 @@ public:
 	double norm() const {
 		return sqrt(norm2());
 	}
-	void normalize() {
+	Vector& normalize() {
 		double n = norm();
 		data[0] /= n;
 		data[1] /= n;
 		data[2] /= n;
+		return *this;
 	}
 
+	// operations added by deepseek ai for cleaner code
 	Vector& operator+=(const Vector& other) {
         data[0] += other[0];
         data[1] += other[1];
         data[2] += other[2];
-        return *this;  // Return reference to allow chaining
+        return *this;
     }
     
     Vector& operator-=(const Vector& other) {
@@ -203,16 +205,68 @@ public:
 	Vector C;
 };
 
-
-// I will provide you with an obj mesh loader (labs 3 and 4)
 class TriangleMesh : public Object {
 public:
 	TriangleMesh(const Vector& albedo, bool mirror = false, bool transparent = false) : ::Object(albedo, mirror, transparent) {};
+	
+	const Vector& A(const size_t& i) const {
+		return vertices[triangles[3*i]];
+	}
+	const Vector& B(const size_t& i) const {
+		return vertices[triangles[3*i+1]];
+	}
+	const Vector& C(const size_t& i) const {
+		return vertices[triangles[3*i+2]];
+	}
+
+	bool intersect_one(const Ray& ray, Vector& P, double& t, Vector& N, const size_t& i) const {
+		Vector e1 = A(i) - B(i);
+		Vector e2 = A(i) - C(i);
+
+		N = cross(e1, e2);
+		
+		t = dot(A(i) - ray.O, N) / dot(ray.u, N);
+
+		if (t <= 0) {
+			return false;
+		}
+
+		double beta  = dot(e2, cross(A(i) - ray.O, ray.u)) / dot(ray.u, N);
+		double gamma = dot(e1, cross(A(i) - ray.O, ray.u)) / dot(ray.u, N);
+		double alpha = 1 - beta - gamma;
+
+		if (!((beta < 1) && (beta > 0) && (alpha < 1) && (alpha > 0) && (gamma < 1) && (gamma > 0))) {
+			return false;
+		}
+
+		P = ray.O + t * ray.u;
+		N.normalize();
+
+		return true;
+	}
 
 	bool intersect(const Ray& ray, Vector& P, double& t, Vector& N) const {
-		// TODO (labs 3 and 4)
-		return false;
+		t = __DBL_MAX__;
+
+		Vector Cand_P, Cand_N;
+		double Cand_t;
+		bool found = false;
+
+		for (size_t i=0; i<total_triangles; i++) {
+			if (intersect_one(ray, Cand_P, Cand_t, Cand_N, i) && Cand_t < t) {
+				found = true;
+				N = Cand_N;
+				P = Cand_P;
+				t = Cand_t;
+			}
+		}
+		
+		return found;
 	}
+
+	size_t total_triangles;
+	std::vector<Vector> vertices;
+	std::vector<size_t> triangles;
 };
 
 
@@ -248,6 +302,7 @@ public:
 				object_id = i;
 			}
 		}
+
 		return found;
 	}
 
@@ -274,7 +329,6 @@ public:
 
 				return getColor(Ray(P + EPS * N * offset(ray.u, N), ray.u - (2 * dot(ray.u, N) * N)), recursion_depth+1);
 			} else {
-
 				// test if there is a shadow by sending a new ray
 				// if shadow, do nothing
 				// if no shadow, return colour set to albedo
@@ -301,7 +355,7 @@ public:
 
 				Vector indirect_light = mult(getColor(random_ray, recursion_depth + 1), objects[object_id]->albedo);
 
-				return_color = return_color + indirect_light; // why is this not adding colour to shadows
+				return_color += indirect_light;
 
 				return return_color;
 			}
@@ -364,6 +418,18 @@ public:
 };
 
 int main() {
+	TriangleMesh triangle(Vector(0.8, 0.2, 0.5), false, false);
+
+	triangle.vertices.push_back(Vector(0, 50, -320));
+	triangle.vertices.push_back(Vector(-100, 20, -220));
+	triangle.vertices.push_back(Vector(-20, -30, -220));
+
+	triangle.triangles.push_back(0);
+	triangle.triangles.push_back(1);
+	triangle.triangles.push_back(2);
+
+	triangle.total_triangles = 1;
+
 	Sphere center_sphere(Vector(-100, -100, -400), 50., Vector(0.8, 0.8, 0.8));
 	Sphere off_center_sphere(Vector(100, -100, -420), 40., Vector(0.8, 0.8, 0.8), true);
 	Sphere far_sphere(Vector(200, 100, -4800), 3000, Vector(1, 0.5, 0.7));
@@ -371,7 +437,7 @@ int main() {
 	Sphere wall_right(Vector(9800, 300, -300), 9500, Vector(0.9, 0.2, 0.3));
 	Sphere wall_front(Vector(0, 300, -10100), 9500, Vector(0.1, 0.6, 0.7));
 	Sphere wall_behind(Vector(0, 300, 9500), 9000, Vector(0.8, 0.2, 0.9));
-	Sphere ceiling(Vector(0, 9900, -300), 9500, Vector(0.3, 0.5, 0.3));
+	Sphere ceiling(Vector(0, 9800, -300), 9500, Vector(0.3, 0.5, 0.3));
 	Sphere floor(Vector(0, -9700, -300), 9500, Vector(0.6, 0.5, 0.7));
 		
 	for (int i = 0; i<32; i++) {
@@ -384,10 +450,10 @@ int main() {
 	scene.light_intensity = 1E7;
 	scene.fov = 60 * M_PI / 180.;
 	scene.gamma = 2.2;
-	scene.max_light_bounce = 5;
+	scene.max_light_bounce = 2;
 
+	scene.addObject(&triangle);
 	scene.addObject(&center_sphere);
-	// scene.addObject(&big_room);
 	scene.addObject(&off_center_sphere);
 	scene.addObject(&wall_left);
 	scene.addObject(&wall_right);
@@ -401,6 +467,7 @@ int main() {
 	
 	std::vector<unsigned char> image = scene.render(W, H);
 
+	stbi_write_png("5.triange.png", W, H, 3, &image[0], 0);
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
 
 	return 0;
