@@ -3,6 +3,7 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #include <omp.h>
 #include <cmath>
+#include <chrono>
 #include <vector>
 #include <random>
 #include <limits>
@@ -19,7 +20,7 @@
 #endif
 
 #ifndef ANTIALIASING
-#define ANTIALIASING 1000
+#define ANTIALIASING 10
 #endif
 
 #ifndef M_PI
@@ -419,17 +420,17 @@ public:
 
 int main() {
 	TriangleMesh triangle(Vector(0.8, 0.2, 0.5), false, false);
-
+	
 	triangle.vertices.push_back(Vector(0, 50, -320));
 	triangle.vertices.push_back(Vector(-100, 20, -220));
 	triangle.vertices.push_back(Vector(-20, -30, -220));
-
+	
 	triangle.triangles.push_back(0);
 	triangle.triangles.push_back(1);
 	triangle.triangles.push_back(2);
-
+	
 	triangle.total_triangles = 1;
-
+	
 	Sphere center_sphere(Vector(-100, -100, -400), 50., Vector(0.8, 0.8, 0.8));
 	Sphere off_center_sphere(Vector(100, -100, -420), 40., Vector(0.8, 0.8, 0.8), true);
 	Sphere far_sphere(Vector(200, 100, -4800), 3000, Vector(1, 0.5, 0.7));
@@ -439,11 +440,11 @@ int main() {
 	Sphere wall_behind(Vector(0, 300, 9500), 9000, Vector(0.8, 0.2, 0.9));
 	Sphere ceiling(Vector(0, 9800, -300), 9500, Vector(0.3, 0.5, 0.3));
 	Sphere floor(Vector(0, -9700, -300), 9500, Vector(0.6, 0.5, 0.7));
-		
+	
 	for (int i = 0; i<32; i++) {
 		engine[i].seed(i);
 	}
-
+	
 	Scene scene;
 	scene.camera_center = Vector(0, 0, 55);
 	scene.light_position = Vector(-100, 200, -200);
@@ -451,7 +452,7 @@ int main() {
 	scene.fov = 60 * M_PI / 180.;
 	scene.gamma = 2.2;
 	scene.max_light_bounce = 2;
-
+	
 	scene.addObject(&triangle);
 	scene.addObject(&center_sphere);
 	scene.addObject(&off_center_sphere);
@@ -461,13 +462,17 @@ int main() {
 	scene.addObject(&wall_behind);
 	scene.addObject(&ceiling);
 	scene.addObject(&floor);
-
+	
 	int W = 512;
 	int H = 512;
+	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 	
 	std::vector<unsigned char> image = scene.render(W, H);
+	
+	std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 
-	stbi_write_png("5.triange.png", W, H, 3, &image[0], 0);
+	std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[µs]" << std::endl;
+	
 	stbi_write_png("image.png", W, H, 3, &image[0], 0);
 
 	return 0;
